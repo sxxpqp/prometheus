@@ -1,0 +1,113 @@
+# my global config
+global:
+  scrape_interval:     15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+      - 192.168.1.215:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "rules.yml"
+  # - "second_rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+# Here it's Prometheus itself.
+scrape_configs:
+  - job_name: zijianzhuji
+    scrape_interval: 15s
+    scrape_timeout: 5s
+    consul_sd_configs:
+      - server: '192.168.1.215:8500'
+        token: '9ff8c572-a78c-d246-7196-38f9716e997a'
+        refresh_interval: 30s
+        services: []
+        tags: ['linux']
+    relabel_configs:
+      - source_labels: ['__meta_consul_service_metadata_vendor']
+        target_label: vendor
+      - source_labels: ['__meta_consul_service_metadata_region']
+        target_label: region
+      - source_labels: ['__meta_consul_service_metadata_group']
+        target_label: group
+      - source_labels: ['__meta_consul_service_metadata_account']
+        target_label: account
+      - source_labels: ['__meta_consul_service_metadata_name']
+        target_label: name
+      - source_labels: ['__meta_consul_service_metadata_iid']
+        target_label: iid
+      - source_labels: ['__meta_consul_service_metadata_exp']
+        target_label: exp
+      - source_labels: ['__meta_consul_service_metadata_instance']
+        target_label: instance
+      - source_labels: [instance]
+        target_label: __address__
+  - job_name: 'blackbox_exporter'
+    metrics_path: /probe
+    consul_sd_configs:
+      - server: '192.168.1.215:8500'
+        token: '9ff8c572-a78c-d246-7196-38f9716e997a'
+        services: ['blackbox_exporter']
+    relabel_configs:
+      - source_labels: ["__meta_consul_service_metadata_instance"]
+        target_label: __param_target
+      - source_labels: [__meta_consul_service_metadata_module]
+        target_label: __param_module
+      - source_labels: [__meta_consul_service_metadata_module]
+        target_label: module
+      - source_labels: ["__meta_consul_service_metadata_company"]
+        target_label: company
+      - source_labels: ["__meta_consul_service_metadata_env"]
+        target_label: env
+      - source_labels: ["__meta_consul_service_metadata_name"]
+        target_label: name
+      - source_labels: ["__meta_consul_service_metadata_project"]
+        target_label: project
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 192.168.1.215:9115
+
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: 'prometheus'
+
+    # metrics_path defaults to '/metrics'
+    # scheme defaults to 'http'.
+
+    static_configs:
+    - targets: ['localhost:9090']
+  - job_name: 'federate'
+    scrape_interval: 15s
+    honor_labels: true
+    metrics_path: '/federate'
+    params:
+      'match[]':
+        - '{job="node-exporter-hwcloud"}'
+        - '{job="node-exporter"}'
+        - '{job="kube-state-metrics"}'
+        - '{cluster=~".*"}'
+        - '{container=~".*"}'
+    file_sd_configs:
+    - files:
+      - file_sd/federate.yaml
+      refresh_interval: 2m 
+  - job_name: 'linux'
+    file_sd_configs:
+    - files:
+      - file_sd/nodes-*.yaml
+      refresh_interval: 2m 
+  - file_sd_configs:
+    - files:
+      - file_sd/mysql.yml
+    job_name: MySQL
+    metrics_path: /metrics
+    relabel_configs:
+    - source_labels: [__address__]
+      regex: (.*)
+      target_label: __address__
+      replacement: $1

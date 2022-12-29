@@ -1,0 +1,182 @@
+groups:
+
+- name: Domain
+  rules:
+  - alert: 站点可用性
+    expr: probe_success == 0
+    for: 1m
+    labels:
+      alertype: domain
+      severity: critical
+    annotations:
+      description: "{{ $labels.env }}_{{ $labels.name }}({{ $labels.project }})：站点无法访问\n> {{ $labels.instance }}"
+
+  - alert: 站点15m可用性低于80%
+    expr: sum_over_time(probe_success[15m])/count_over_time(probe_success[15m]) * 100 < 80
+    for: 1m
+    labels:
+      alertype: domain
+      severity: warning
+    annotations:
+      description: "{{ $labels.env }}_{{ $labels.name }}({{ $labels.project }})：站点15m可用性：{{ $value | humanize }}%\n> {{ $labels.instance }}"
+
+  - alert: 站点状态异常
+    expr: (probe_success == 0 and probe_http_status_code > 499) or probe_http_status_code == 0
+    for: 1m
+    labels:
+      alertype: domain
+      severity: warning
+    annotations:
+      description: "{{ $labels.env }}_{{ $labels.name }}({{ $labels.project }})：站点状态异常：{{ $value }}\n> {{ $labels.instance }}"
+
+  - alert: 站点耗时过高
+    expr: probe_duration_seconds > 3
+    for: 2m
+    labels:
+      alertype: domain
+      severity: warning
+    annotations:
+      description: "{{ $labels.env }}_{{ $labels.name }}({{ $labels.project }})：当前站点耗时：{{ $value | humanize }}s\n> {{ $labels.instance }}"
+
+  - alert: SSL证书有效期
+    expr: (probe_ssl_earliest_cert_expiry-time()) / 3600 / 24 < 15
+    for: 2m
+    labels:
+      alertype: domain
+      severity: warning
+    annotations:
+      description: "{{ $labels.env }}_{{ $labels.name }}({{ $labels.project }})：证书有效期剩余{{ $value | humanize }}天\n> {{ $labels.instance }}"
+- name: mem-rule
+  rules:
+  - alert: "内存报警"
+    expr: (node_memory_MemTotal_bytes - (node_memory_MemFree_bytes+node_memory_Buffers_bytes+node_memory_Cached_bytes )) / node_memory_MemTotal_bytes * 101 > 90
+    for: 30s
+    labels:
+      status: Warning
+      severity: warning
+    annotations:
+      summary: "服务名:{{$labels.alertname}} 内存报警"
+      description: "{{ $labels.alertname }}  内存资源利用率大于 90%"
+      value: "{{ $value }}"
+- name: disk-rule
+  rules:
+  - alert: "硬盘报警"
+    expr: (node_filesystem_size_bytes{fstype=~"xfs|ext4"} - node_filesystem_avail_bytes) / node_filesystem_size_bytes * 100 > 95
+    for: 30s
+    labels:
+      severity: middle
+      status: Warning
+    annotations:
+      summary: "服务名:{{$labels.alertname}} 硬盘报警"
+      description: "{{ $labels.alertname }}  硬盘资源利用率大于 95%"
+      value: "{{ $value }}"
+- name: cpu-rule
+  rules:
+  - alert: "cpu告警"
+    expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 90
+    for: 1m
+    labels:
+      serverity: high
+    annotations:
+      summary: "服务名:{{$labels.alertname}} cpu报警"
+      description: "{{ $labels.alertname }}  cpu资源利用率大于 90%"
+- name: node-rule
+  rules:
+  - alert: "node-down"
+    expr: up{job=~"node.*|zijian.*"} !=1
+    for: 1m
+    annotations:
+      summary: "服务名:{{$labels.instance}} node报警"
+      description: "node: {{ $labels.instance }}   has been down for more than 1 minutes"
+  - alert: K8S节点POD磁盘使用率
+    expr: 100 - (node_filesystem_avail_bytes/node_filesystem_size_bytes{mountpoint=~"/data/var/lib/docker/containers/.*/mounts/.*"} * 100) > 85
+    for: 5m
+    labels:
+      alertype: system
+      severity: warning
+    annotations:
+      description: "{{ $labels.name }}_{{ $labels.mountpoint }}：磁盘使用率{{ $value | humanize }}%\n> {{ $labels.group }}-{{ $labels.instance }}"
+
+  - alert: NFS磁盘使用率
+    expr: 100 - (node_filesystem_avail_bytes/node_filesystem_size_bytes{fstype="nfs"} * 100) > 90
+    for: 5m
+    labels:
+      alertype: system
+      severity: warning
+    annotations:
+      description: "{{ $labels.name }}_{{ $labels.mountpoint }}：磁盘使用率{{ $value | humanize }}%\n> {{ $labels.group }}-{{ $labels.instance }}"
+
+  - alert: 磁盘读写容量
+    expr: (irate(node_disk_read_bytes_total[5m]) ) /1024 /1024  > 80 or (irate(node_disk_written_bytes_total[5m]) ) /1024 /1024 > 80
+    for: 8m
+    labels:
+      alertype: disk
+      severity: warning
+    annotations:
+      description: "{{ $labels.name }}_{{ $labels.device }}：当前IO为{{ $value | humanize }}MB/s\n> {{ $labels.group }}-{{ $labels.instance }}"
+
+  - alert: 网络流入（下载）数据过多
+    expr: sum by(device,instance, name, group, account) (irate(node_network_receive_bytes_total{device!~'tap.*|veth.*|br.*|docker.*|virbr.*|lo.*|cni.*'}[5m])) / 1024 / 1024 > 70
+    for: 5m
+    labels:
+      alertype: network
+      severity: warning
+    annotations:
+      description: "{{ $labels.name }}：流入数据为{{ $value | humanize }}MB/s\n> {{ $labels.group }}-{{ $labels.instance }}"
+
+  - alert: 网络流出（上传）数据过多
+    expr: sum by(device,instance, name, group, account) (irate(node_network_transmit_bytes_total{device!~'tap.*|veth.*|br.*|docker.*|virbr.*|lo.*|cni.*'}[5m])) / 1024 / 1024 > 70
+    for: 5m
+    labels:
+      alertype: network
+      severity: warning
+    annotations:
+      description: "{{ $labels.name }}：流出数据为{{ $value | humanize }}MB/s\n> {{ $labels.group }}-{{ $labels.instance }}"
+  - alert: Pod的状态为未运行 # 15s 采集 + 15s 扫描规则，规则是1分钟前存在 pod 为 not ready 的 pod，15s 扫描一次的间隔，至少能扫描 3次，所以一定会发送
+    expr: sum (kube_pod_status_phase{phase!~"Running|Succeeded"}) by (cluster,namespace,pod,phase) >0
+    for: 3m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.container }} down'
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, Pod: {{ $labels.pod }} 服务不正常'
+  - alert: Pod的cpu告警 
+    expr: 100* (sum(rate(container_cpu_usage_seconds_total[5m])) by (cluster,namespace,pod,container) /sum(kube_pod_container_resource_limits_cpu_cores) by (cluster,namespace,pod,container))>90
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.container }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, Pod: {{ $labels.pod }} 的cpu使用率超过90%'
+  - alert: Pod的memory告警 
+    expr: 100 * (sum by(cluster, namespace, pod,container)(container_memory_working_set_bytes) / sum by(cluster, namespace, pod,container) (kube_pod_container_resource_limits_memory_bytes)) >90
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.container }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, Pod: {{ $labels.pod }} 的memory使用率超过90%'
+  - alert: Pod容器入带宽告警 
+    expr: sum by (pod,cluster)(irate(container_network_receive_bytes_total{}[1m])) / 1024/1024>90
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.container }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, Pod: {{ $labels.pod }} 的Pod容器入带宽告超过90m'
+  - alert: Pod容器出带宽告警 
+    expr: sum by (pod,cluster)(irate(container_network_transmit_bytes_total{}[1m])) / 1024/1024>90
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.container }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, Pod: {{ $labels.pod }} 的Pod容器入带宽告超过90m'
+  - alert: PVC容量即将不足 
+    expr: sum by (cluster,namespace,persistentvolumeclaim) (round(kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes*100)) < 20
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.persistentvolumeclaim }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, pvc: {{ $labels.persistentvolumeclaim }} 的pvc容量不足20%'    
+  - alert: PV容量出错
+    expr: sum by (cluster,namespace,persistentvolume) (kube_persistentvolume_status_phase{phase=~"Failed|Pending"}) >0
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.persistentvolume }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, pvc: {{ $labels.persistentvolume }} 的PV容量出错'
+  - alert: PVC空间耗尽预测
+    expr: (kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes ) < 0.4 and predict_linear(kubelet_volume_stats_available_bytes[6h], 4 * 24 * 3600) < 0
+    for: 1m # 持续多久确认报警信息
+    annotations:
+      summary: 'Container: {{ $labels.persistentvolumeclaim }} '
+      description: 'Cluster: {{ $labels.cluster }} Namespace: {{ $labels.namespace }}, pvc: {{ $labels.persistentvolumeclaim }} 的PVC空间耗尽大概4天'       
